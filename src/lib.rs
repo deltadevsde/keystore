@@ -78,7 +78,7 @@ impl KeyStore for FileStore {
     }
 }
 
-#[cfg(feature = "mocks")]
+#[cfg(feature = "mocking")]
 pub mod mocks {
     use super::*;
     use mockall::*;
