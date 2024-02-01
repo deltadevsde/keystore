@@ -5,12 +5,14 @@ use os::{add_signing_key_to_keychain, get_signing_key_from_keychain};
 use file::{encrypt_and_store_private_key, load_and_decrypt_private_key};
 use rand::rngs::OsRng;
 use ed25519_dalek::SigningKey;
+use mockall::automock;
 
 pub fn create_signing_key() -> SigningKey {
     let mut csprng = OsRng;
     SigningKey::generate(&mut csprng)
 }
 
+#[automock]
 pub trait KeyStore {
     fn add_signing_key(&self, signing_key: &SigningKey) -> Result<(), String>;
     fn get_signing_key(&self) -> Result<SigningKey, String>;
@@ -75,18 +77,5 @@ impl KeyStore for FileStore {
 
     fn get_signing_key(&self) -> Result<SigningKey, String> {
         load_and_decrypt_private_key(&self.file_path).map_err(|e| e.to_string())
-    }
-}
-
-#[cfg(feature = "mocking")]
-pub mod mocks {
-    use super::*;
-    use mockall::*;
-
-    mock! {
-        pub KeyStore {
-            fn add_signing_key(&self, signing_key: &SigningKey) -> Result<(), String>;
-            fn get_signing_key(&self) -> Result<SigningKey, String>;
-        }
     }
 }
