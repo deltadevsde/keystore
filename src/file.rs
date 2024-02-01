@@ -4,10 +4,7 @@ use std::fs;
 use std::env;
 use dotenv;
 use hex;
-use aes_gcm::{
-    aead::{Aead, AeadCore, KeyInit, OsRng},
-    Aes256Gcm, Nonce, Key // Or `Aes128Gcm`
-};
+use aes_gcm::{aead::{Aead, AeadCore, KeyInit, OsRng}, Aes256Gcm, Nonce, Key};
 
 
 fn load_symmetric_key() -> Result<Aes256Gcm, Box<dyn std::error::Error>> {

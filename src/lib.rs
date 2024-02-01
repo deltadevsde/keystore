@@ -77,3 +77,16 @@ impl KeyStore for FileStore {
         load_and_decrypt_private_key(&self.file_path).map_err(|e| e.to_string())
     }
 }
+
+#[cfg(feature = "mocks")]
+pub mod mocks {
+    use super::*;
+    use mockall::*;
+
+    mock! {
+        pub KeyStore {
+            fn add_signing_key(&self, signing_key: &SigningKey) -> Result<(), String>;
+            fn get_signing_key(&self) -> Result<SigningKey, String>;
+        }
+    }
+}
