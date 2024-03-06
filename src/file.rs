@@ -2,13 +2,13 @@ use ed25519_dalek::SigningKey;
 use hex::ToHex;
 use std::fs;
 use std::env;
-use dotenv;
+use dotenvy::dotenv;
 use hex;
 use aes_gcm::{aead::{Aead, AeadCore, KeyInit, OsRng}, Aes256Gcm, Nonce, Key};
 
 
 fn load_symmetric_key() -> Result<Aes256Gcm, Box<dyn std::error::Error>> {
-    dotenv::dotenv().ok();
+    dotenv().ok();
     let key = env::var("SYMMETRIC_KEY").unwrap_or_else(|_| {
         let symmetric_key = Aes256Gcm::generate_key(OsRng);
         let key_hex = symmetric_key.encode_hex();
