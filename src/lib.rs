@@ -1,11 +1,11 @@
-pub mod os;
 pub mod file;
+pub mod os;
 
-use os::{add_signing_key_to_keychain, get_signing_key_from_keychain};
-use file::{encrypt_and_store_private_key, load_and_decrypt_private_key};
-use rand::rngs::OsRng;
 use ed25519_dalek::SigningKey;
+use file::{encrypt_and_store_private_key, load_and_decrypt_private_key};
 use mockall::automock;
+use os::{add_signing_key_to_keychain, get_signing_key_from_keychain};
+use rand::rngs::OsRng;
 
 pub fn create_signing_key() -> SigningKey {
     let mut csprng = OsRng;
@@ -29,7 +29,7 @@ impl KeyStore for KeyStoreType {
         match self {
             KeyStoreType::KeyChain(store) => store.add_signing_key(signing_key),
             KeyStoreType::FileStore(store) => store.add_signing_key(signing_key),
-            // m,ore to come
+            // more to come
         }
     }
 
@@ -41,7 +41,6 @@ impl KeyStore for KeyStoreType {
         }
     }
 }
-
 
 // TODO: keychain is only for macos, should there be another abstraction to handle linux and windows as well
 pub struct KeyChain;
@@ -60,14 +59,13 @@ pub struct FileStore {
 }
 
 impl FileStore {
-    // using impl Into<String> to allow for &str and String here 
+    // using impl Into<String> to allow for &str and String here
     pub fn new(file_path: impl Into<String>) -> Self {
         FileStore {
             file_path: file_path.into(),
         }
     }
 }
-
 
 impl KeyStore for FileStore {
     // TODO: how to handle filepaths better / the right way?
