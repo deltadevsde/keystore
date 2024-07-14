@@ -1,17 +1,17 @@
 use ed25519_dalek::SigningKey;
 use std::error::Error;
 
-#[cfg(feature = "macos")]
+#[cfg(target_os = "macos")]
 use security_framework::os::macos::keychain::SecKeychain;
 
-#[cfg(feature = "linux")]
+#[cfg(target_os = "linux")]
 use base64::{engine::general_purpose, Engine as _};
-#[cfg(feature = "linux")]
+#[cfg(target_os = "linux")]
 use keyring::Entry;
 
 use crate::create_signing_key;
 
-#[cfg(feature = "macos")]
+#[cfg(target_os = "macos")]
 pub fn add_signing_key_to_keychain(
     signing_key: &SigningKey,
 ) -> Result<(), security_framework::base::Error> {
@@ -21,7 +21,7 @@ pub fn add_signing_key_to_keychain(
     keychain.add_generic_password("deimos", "signing_key", &signing_key_bytes)
 }
 
-#[cfg(feature = "linux")]
+#[cfg(target_os = "linux")]
 pub fn add_signing_key_to_keychain(signing_key: &SigningKey) -> Result<(), Box<dyn Error>> {
     let signing_key_bytes = signing_key.to_bytes();
     let signing_key_str = general_purpose::STANDARD.encode(&signing_key_bytes);
@@ -32,7 +32,7 @@ pub fn add_signing_key_to_keychain(signing_key: &SigningKey) -> Result<(), Box<d
     Ok(())
 }
 
-#[cfg(feature = "macos")]
+#[cfg(target_os = "macos")]
 pub fn get_signing_key_from_keychain() -> Result<SigningKey, Box<dyn Error>> {
     let keychain = SecKeychain::default()?;
 
@@ -51,7 +51,7 @@ pub fn get_signing_key_from_keychain() -> Result<SigningKey, Box<dyn Error>> {
     Ok(SigningKey::from_bytes(&signing_key_array))
 }
 
-#[cfg(feature = "linux")]
+#[cfg(target_os = "linux")]
 pub fn get_signing_key_from_keychain() -> Result<SigningKey, Box<dyn Error>> {
     let keyring = Entry::new("deimos", "signing_key")?;
 

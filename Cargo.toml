@@ -3,14 +3,7 @@ name = "keystore"
 version = "0.1.0"
 edition = "2021"
 
-[features]
-default = ["linux"]
-macos = ["security-framework"]
-linux = ["keyring"]
-
 [dependencies]
-security-framework = { version = "2.4", optional = true }
-keyring = { version = "3.0.1", optional = true }
 ed25519-dalek = { version = "2.1.0", features = ["rand_core"] }
 rand = "0.8.4"
 dotenvy = "0.15.7"
@@ -18,3 +11,10 @@ hex = "0.4.3"
 aes-gcm = "0.10.3"
 mockall = { version = "0.12.1" }
 base64 = "0.22.1"
+
+[target.'cfg(target_os = "macos")'.dependencies]
+security-framework = "2.4"
+
+[target.'cfg(target_os = "linux")'.dependencies]
+keyring = "3.0.1"
+
