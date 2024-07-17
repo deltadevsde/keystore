@@ -2,6 +2,12 @@
 name = "keystore"
 version = "0.1.0"
 edition = "2021"
+authors = ["Ryan Ford <ryan@deltadevs.xyz>", "Sebastian Pusch <sebastian@deltadevs.xyz>"]
+description = "A Rust library for securely generating, storing, and managing cryptographic keys with support for macOS and Linux keychain integration."
+homepage = "https://github.com/deltadevsde/keystore"
+repository = "https://github.com/deltadevsde/keystore"
+license = "MIT"
+readme = "README.md"
 
 [dependencies]
 ed25519-dalek = { version = "2.1.0", features = ["rand_core"] }
