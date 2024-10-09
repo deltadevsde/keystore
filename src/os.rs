@@ -67,5 +67,5 @@ pub fn get_signing_key_from_keychain() -> Result<SigningKey, Box<dyn Error>> {
     let signing_key_bytes = general_purpose::STANDARD.decode(&signing_key_str)?;
     let mut signing_key_array = [0u8; 32];
     signing_key_array.copy_from_slice(&signing_key_bytes[..32]);
-    Ok(SigningKey::from_bytes(&signing_key_array))
+    Ok(SigningKey::from(signing_key_array))
 }
