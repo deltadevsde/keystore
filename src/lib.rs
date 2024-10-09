@@ -1,15 +1,14 @@
 pub mod file;
 pub mod os;
 
-use ed25519_dalek::SigningKey;
+use ed25519_consensus::SigningKey;
 use file::{encrypt_and_store_private_key, load_and_decrypt_private_key};
 use mockall::automock;
 use os::{add_signing_key_to_keychain, get_signing_key_from_keychain};
 use rand::rngs::OsRng;
 
 pub fn create_signing_key() -> SigningKey {
-    let mut csprng = OsRng;
-    SigningKey::generate(&mut csprng)
+    SigningKey::new(OsRng)
 }
 
 #[automock]

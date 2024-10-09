@@ -1,11 +1,13 @@
-use ed25519_dalek::SigningKey;
-use hex::ToHex;
-use std::fs;
-use std::env;
+use aes_gcm::{
+    aead::{Aead, AeadCore, KeyInit, OsRng},
+    Aes256Gcm, Key, Nonce,
+};
 use dotenvy::dotenv;
+use ed25519_consensus::SigningKey;
 use hex;
-use aes_gcm::{aead::{Aead, AeadCore, KeyInit, OsRng}, Aes256Gcm, Nonce, Key};
-
+use hex::ToHex;
+use std::env;
+use std::fs;
 
 fn load_symmetric_key() -> Result<Aes256Gcm, Box<dyn std::error::Error>> {
     dotenv().ok();
@@ -25,11 +27,16 @@ fn load_symmetric_key() -> Result<Aes256Gcm, Box<dyn std::error::Error>> {
     Ok(cipher)
 }
 
-pub fn encrypt_and_store_private_key(signing_key: &SigningKey, file_path: &str) -> Result<(), Box<dyn std::error::Error>> {
+pub fn encrypt_and_store_private_key(
+    signing_key: &SigningKey,
+    file_path: &str,
+) -> Result<(), Box<dyn std::error::Error>> {
     let symmetric_key = load_symmetric_key()?;
     let nonce = Aes256Gcm::generate_nonce(&mut OsRng);
-    
-    let ciphertext = symmetric_key.encrypt(&nonce, signing_key.to_bytes().as_ref()).unwrap();
+
+    let ciphertext = symmetric_key
+        .encrypt(&nonce, signing_key.to_bytes().as_ref())
+        .unwrap();
 
     let mut data_to_store = Vec::new();
     data_to_store.extend_from_slice(&nonce);
@@ -40,19 +47,22 @@ pub fn encrypt_and_store_private_key(signing_key: &SigningKey, file_path: &str) 
     Ok(())
 }
 
-
-pub fn load_and_decrypt_private_key(file_path: &str) -> Result<SigningKey, Box<dyn std::error::Error>> {
+pub fn load_and_decrypt_private_key(
+    file_path: &str,
+) -> Result<SigningKey, Box<dyn std::error::Error>> {
     let encrypted_data = std::fs::read(file_path)?;
     let symmetric_key = load_symmetric_key()?;
 
-    let (nonce, ciphertext) = encrypted_data.split_at(12); 
-    let nonce = Nonce::from_slice(nonce); 
-    
-    let decrypted_plaintext = symmetric_key.decrypt(nonce, ciphertext).map_err(|e| e.to_string())?;
+    let (nonce, ciphertext) = encrypted_data.split_at(12);
+    let nonce = Nonce::from_slice(nonce);
+
+    let decrypted_plaintext = symmetric_key
+        .decrypt(nonce, ciphertext)
+        .map_err(|e| e.to_string())?;
 
     let mut singing_key_array = [0u8; 32];
     singing_key_array.copy_from_slice(&decrypted_plaintext);
-    Ok(SigningKey::from_bytes(&singing_key_array))
+    Ok(SigningKey::from(singing_key_array))
 }
 
 #[cfg(test)]
@@ -68,13 +78,19 @@ mod tests {
         let file_path = "test_encrypted_key";
 
         // encrypt and store the private key
-        encrypt_and_store_private_key(&signing_key, file_path).expect("Fehler beim Verschlüsseln und Speichern");
+        encrypt_and_store_private_key(&signing_key, file_path)
+            .expect("Fehler beim Verschlüsseln und Speichern");
 
         // load and decrypt the private key
-        let decrypted_key = load_and_decrypt_private_key(file_path).expect("Fehler beim Laden und Entschlüsseln");
+        let decrypted_key =
+            load_and_decrypt_private_key(file_path).expect("Fehler beim Laden und Entschlüsseln");
 
         // check if the keys are the same
-        assert_eq!(signing_key, decrypted_key, "Die Schlüssel stimmen nicht überein");
+        assert_eq!(
+            signing_key.to_bytes(),
+            decrypted_key.to_bytes(),
+            "Die Schlüssel stimmen nicht überein"
+        );
 
         // remove the teest file
         std::fs::remove_file(file_path).expect("Fehler beim Löschen der Testdatei");
@@ -88,15 +104,18 @@ mod tests {
         let file_path = "test_encrypted_key";
 
         // encrypt and store the private key
-        encrypt_and_store_private_key(&signing_key, file_path).expect("Fehler beim Verschlüsseln und Speichern");
+        encrypt_and_store_private_key(&signing_key, file_path)
+            .expect("Fehler beim Verschlüsseln und Speichern");
 
         let encrypted_data = std::fs::read(file_path).unwrap();
         let symmetric_key = load_symmetric_key().unwrap();
 
-        let (_nonce, ciphertext) = encrypted_data.split_at(12); 
+        let (_nonce, ciphertext) = encrypted_data.split_at(12);
         let new_nonce = Aes256Gcm::generate_nonce(&mut OsRng);
 
-        let decryption_result = symmetric_key.decrypt(&new_nonce, ciphertext).map_err(|e| e.to_string());
+        let decryption_result = symmetric_key
+            .decrypt(&new_nonce, ciphertext)
+            .map_err(|e| e.to_string());
 
         assert!(decryption_result.is_err(), "cant decrypt with wrong nonce");
 
@@ -104,4 +123,3 @@ mod tests {
         std::fs::remove_file(file_path).expect("Fehler beim Löschen der Testdatei");
     }
 }
-

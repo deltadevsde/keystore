@@ -1,4 +1,4 @@
-use ed25519_dalek::SigningKey;
+use ed25519_consensus::SigningKey;
 use std::error::Error;
 
 #[cfg(target_os = "macos")]
@@ -48,7 +48,7 @@ pub fn get_signing_key_from_keychain() -> Result<SigningKey, Box<dyn Error>> {
 
     let mut signing_key_array = [0u8; 32];
     signing_key_array.copy_from_slice(&signing_key_bytes[..32]);
-    Ok(SigningKey::from_bytes(&signing_key_array))
+    Ok(SigningKey::from(signing_key_array))
 }
 
 #[cfg(target_os = "linux")]
