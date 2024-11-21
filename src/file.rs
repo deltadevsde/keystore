@@ -1,3 +1,4 @@
+use crate::KeyStore;
 use aes_gcm::{
     aead::{Aead, AeadCore, KeyInit, OsRng},
     Aes256Gcm, Key, Nonce,
@@ -6,8 +7,31 @@ use dotenvy::dotenv;
 use ed25519_consensus::SigningKey;
 use hex;
 use hex::ToHex;
-use std::env;
 use std::fs;
+use std::{borrow::Cow, env};
+
+pub struct FileStore {
+    file_path: Cow<'static, str>,
+}
+
+impl FileStore {
+    // using impl Into<String> to allow for &str and String here
+    pub fn new(file_path: Cow<'static, str>) -> Self {
+        FileStore { file_path }
+    }
+}
+
+impl KeyStore for FileStore {
+    fn add_signing_key(&self, id: &str, signing_key: &SigningKey) -> Result<(), String> {
+        let path = self.file_path.clone() + id;
+        encrypt_and_store_private_key(signing_key, &path).map_err(|e| e.to_string())
+    }
+
+    fn get_signing_key(&self, id: &str) -> Result<SigningKey, String> {
+        let path = self.file_path.clone() + id;
+        load_and_decrypt_private_key(&path).map_err(|e| e.to_string())
+    }
+}
 
 fn load_symmetric_key() -> Result<Aes256Gcm, Box<dyn std::error::Error>> {
     dotenv().ok();
@@ -92,7 +116,7 @@ mod tests {
             "Die Schlüssel stimmen nicht überein"
         );
 
-        // remove the teest file
+        // remove the test file
         std::fs::remove_file(file_path).expect("Fehler beim Löschen der Testdatei");
     }
 
@@ -119,7 +143,7 @@ mod tests {
 
         assert!(decryption_result.is_err(), "cant decrypt with wrong nonce");
 
-        // remove the teest file
+        // remove the test file
         std::fs::remove_file(file_path).expect("Fehler beim Löschen der Testdatei");
     }
 }
