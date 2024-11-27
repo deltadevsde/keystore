@@ -14,7 +14,7 @@ Add the following to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-keystore-rs = "0.1.0"
+keystore-rs = "0.2.0"
 ```
 
 or
@@ -45,7 +45,7 @@ fn main() {
 
     // Retrieve the signing key from the keystore
     let retrieved_key = keystore.get_signing_key().unwrap();
-    
+
     assert_eq!(signing_key.to_bytes(), retrieved_key.to_bytes());
 }
 ```
