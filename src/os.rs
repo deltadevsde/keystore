@@ -39,7 +39,7 @@ pub fn add_signing_key_to_keychain(
     signing_key: &SigningKey,
 ) -> Result<(), Box<dyn Error>> {
     let signing_key_bytes = signing_key.to_bytes();
-    let signing_key_str = general_purpose::STANDARD.encode(&signing_key_bytes);
+    let signing_key_str = general_purpose::STANDARD.encode(signing_key_bytes);
 
     let entry = Entry::new(id, "signing_key").unwrap();
     entry.set_password(&signing_key_str)?;
@@ -74,7 +74,7 @@ pub fn get_signing_key_from_keychain(id: &str) -> Result<SigningKey, Box<dyn Err
         Ok(password) => password,
         Err(_) => {
             let signing_key = create_signing_key();
-            add_signing_key_to_keychain(&signing_key)?;
+            add_signing_key_to_keychain(id, &signing_key)?;
             general_purpose::STANDARD.encode(signing_key.to_bytes())
         }
     };
