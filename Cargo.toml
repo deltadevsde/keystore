@@ -1,6 +1,6 @@
 [package]
 name = "keystore-rs"
-version = "0.2.0"
+version = "0.3.0"
 edition = "2021"
 authors = [
     "Ryan Quinn Ford <ryan@deltadevs.xyz>",
@@ -14,6 +14,7 @@ readme = "README.md"
 
 [dependencies]
 ed25519-consensus = "2.1.0"
+anyhow = "1.0.44"
 rand = "0.8.5"
 dotenvy = "0.15.7"
 hex = "0.4.3"

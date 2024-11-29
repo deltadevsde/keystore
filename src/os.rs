@@ -1,5 +1,5 @@
+use anyhow::{Context, Result};
 use ed25519_consensus::SigningKey;
-use std::error::Error;
 
 #[cfg(target_os = "macos")]
 use security_framework::os::macos::keychain::SecKeychain;
@@ -13,12 +13,31 @@ use crate::{create_signing_key, KeyStore};
 
 pub struct KeyChain;
 impl KeyStore for KeyChain {
-    fn add_signing_key(&self, id: &str, signing_key: &SigningKey) -> Result<(), String> {
-        add_signing_key_to_keychain(id, signing_key).map_err(|e| e.to_string())
+    fn add_signing_key(&self, id: &str, signing_key: &SigningKey) -> Result<()> {
+        add_signing_key_to_keychain(id, signing_key).context(format!(
+            "failed to store signing key for id {} in keychain",
+            id
+        ))
     }
 
-    fn get_signing_key(&self, id: &str) -> Result<SigningKey, String> {
-        get_signing_key_from_keychain(id).map_err(|e| e.to_string())
+    fn get_signing_key(&self, id: &str) -> Result<SigningKey> {
+        get_signing_key_from_keychain(id).context(format!(
+            "failed to load signing key for id {} from keychain",
+            id
+        ))
+    }
+
+    fn get_or_create_signing_key(&self, id: &str) -> Result<SigningKey> {
+        match self.get_signing_key(id) {
+            Ok(key) => Ok(key),
+            Err(_) => {
+                let new_key = create_signing_key();
+                self.add_signing_key(id, &new_key).with_context(|| {
+                    format!("Failed to create and store new key for id: {}", id)
+                })?;
+                Ok(new_key)
+            }
+        }
     }
 }
 
@@ -34,32 +53,23 @@ pub fn add_signing_key_to_keychain(
 }
 
 #[cfg(target_os = "linux")]
-pub fn add_signing_key_to_keychain(
-    id: &str,
-    signing_key: &SigningKey,
-) -> Result<(), Box<dyn Error>> {
+pub fn add_signing_key_to_keychain(id: &str, signing_key: &SigningKey) -> Result<()> {
     let signing_key_bytes = signing_key.to_bytes();
     let signing_key_str = general_purpose::STANDARD.encode(&signing_key_bytes);
 
-    let entry = Entry::new(id, "signing_key").unwrap();
+    let entry = Entry::new(id, "signing_key").context("failed to create new keyring entry")?;
     entry.set_password(&signing_key_str)?;
 
     Ok(())
 }
 
 #[cfg(target_os = "macos")]
-pub fn get_signing_key_from_keychain(id: &str) -> Result<SigningKey, Box<dyn Error>> {
+pub fn get_signing_key_from_keychain(id: &str) -> Result<SigningKey> {
     let keychain = SecKeychain::default()?;
 
-    // get signing key or add it if it doesn't exist
-    let signing_key_bytes: Vec<u8> = match keychain.find_generic_password(id, "signing_key") {
-        Ok(value) => value.0.to_vec(),
-        Err(_) => {
-            let signing_key = create_signing_key();
-            add_signing_key_to_keychain(id, &signing_key)?;
-            signing_key.to_bytes().to_vec()
-        }
-    };
+    let (signing_key_bytes, _) = keychain
+        .find_generic_password(id, "signing_key")
+        .context(format!("Failed to find signing key for id: {}", id))?;
 
     let mut signing_key_array = [0u8; 32];
     signing_key_array.copy_from_slice(&signing_key_bytes[..32]);
@@ -67,17 +77,12 @@ pub fn get_signing_key_from_keychain(id: &str) -> Result<SigningKey, Box<dyn Err
 }
 
 #[cfg(target_os = "linux")]
-pub fn get_signing_key_from_keychain(id: &str) -> Result<SigningKey, Box<dyn Error>> {
+pub fn get_signing_key_from_keychain(id: &str) -> Result<SigningKey> {
     let keyring = Entry::new(id, "signing_key")?;
 
-    let signing_key_str = match keyring.get_password() {
-        Ok(password) => password,
-        Err(_) => {
-            let signing_key = create_signing_key();
-            add_signing_key_to_keychain(&signing_key)?;
-            general_purpose::STANDARD.encode(signing_key.to_bytes())
-        }
-    };
+    let signing_key_str = keyring
+        .get_password()
+        .context("failed to get password from keyring")?;
 
     let signing_key_bytes = general_purpose::STANDARD.decode(&signing_key_str)?;
     let mut signing_key_array = [0u8; 32];
