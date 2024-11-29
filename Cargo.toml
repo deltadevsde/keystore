@@ -1,6 +1,6 @@
 [package]
 name = "keystore-rs"
-version = "0.1.2"
+version = "0.2.0"
 edition = "2021"
 authors = [
     "Ryan Quinn Ford <ryan@deltadevs.xyz>",
@@ -14,15 +14,15 @@ readme = "README.md"
 
 [dependencies]
 ed25519-consensus = "2.1.0"
-rand = "0.8.4"
+rand = "0.8.5"
 dotenvy = "0.15.7"
 hex = "0.4.3"
 aes-gcm = "0.10.3"
-mockall = { version = "0.12.1" }
+mockall = { version = "0.13.1" }
 base64 = "0.22.1"
 
 [target.'cfg(target_os = "macos")'.dependencies]
-security-framework = "2.4"
+security-framework = "3.0.1"
 
 [target.'cfg(target_os = "linux")'.dependencies]
-keyring = "3.0.1"
+keyring = "3.6.1"
