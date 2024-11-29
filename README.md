@@ -14,7 +14,7 @@ Add the following to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-keystore-rs = "0.1.0"
+keystore-rs = "0.3.0"
 ```
 
 or
@@ -41,12 +41,13 @@ fn main() {
     let keystore = KeyStoreType::FileStore(file_store);
 
     // Add the signing key to the keystore
-    keystore.add_signing_key(&signing_key).unwrap();
+    keystore.add_signing_key("my-key-1", &signing_key)?;
 
     // Retrieve the signing key from the keystore
-    let retrieved_key = keystore.get_signing_key().unwrap();
-    
-    assert_eq!(signing_key.to_bytes(), retrieved_key.to_bytes());
+    let retrieved_key = keystore.get_signing_key("my-key-1")?;
+
+    // Get a key, creating it if it doesn't exist
+    let key = file_store.get_or_create_signing_key("my-key-2")?;
 }
 ```
 
