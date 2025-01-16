@@ -1,6 +1,7 @@
 pub mod file;
 pub mod os;
 
+use anyhow::Result;
 use ed25519_consensus::SigningKey;
 use mockall::automock;
 use rand::rngs::OsRng;
@@ -14,6 +15,7 @@ pub fn create_signing_key() -> SigningKey {
 
 #[automock]
 pub trait KeyStore {
-    fn add_signing_key(&self, id: &str, signing_key: &SigningKey) -> Result<(), String>;
-    fn get_signing_key(&self, id: &str) -> Result<SigningKey, String>;
+    fn add_signing_key(&self, id: &str, signing_key: &SigningKey) -> Result<()>;
+    fn get_signing_key(&self, id: &str) -> Result<SigningKey>;
+    fn get_or_create_signing_key(&self, id: &str) -> Result<SigningKey>;
 }

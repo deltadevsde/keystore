@@ -1,14 +1,14 @@
-use crate::KeyStore;
+use crate::{create_signing_key, KeyStore};
 use aes_gcm::{
     aead::{Aead, AeadCore, KeyInit, OsRng},
-    Aes256Gcm, Key, Nonce,
+    Aes256Gcm, Nonce,
 };
+use anyhow::{anyhow, bail, Context, Result};
 use dotenvy::dotenv;
 use ed25519_consensus::SigningKey;
 use hex;
-use hex::ToHex;
-use std::fs;
 use std::{borrow::Cow, env};
+use std::{fs, path::PathBuf};
 
 pub struct FileStore {
     file_path: Cow<'static, str>,
@@ -22,45 +22,45 @@ impl FileStore {
 }
 
 impl KeyStore for FileStore {
-    fn add_signing_key(&self, id: &str, signing_key: &SigningKey) -> Result<(), String> {
-        let path = self.file_path.clone() + id;
-        encrypt_and_store_private_key(signing_key, &path).map_err(|e| e.to_string())
+    fn add_signing_key(&self, id: &str, signing_key: &SigningKey) -> Result<()> {
+        let path = PathBuf::from(self.file_path.as_ref()).join(id);
+        encrypt_and_store_private_key(signing_key, &path)
+            .context(format!("failed to store signing key for id {}", id))
     }
 
-    fn get_signing_key(&self, id: &str) -> Result<SigningKey, String> {
-        let path = self.file_path.clone() + id;
-        load_and_decrypt_private_key(&path).map_err(|e| e.to_string())
+    fn get_signing_key(&self, id: &str) -> Result<SigningKey> {
+        let path = PathBuf::from(self.file_path.as_ref()).join(id);
+        load_and_decrypt_private_key(&path)
+            .context(format!("failed to load signing key for id {}", id))
+    }
+
+    fn get_or_create_signing_key(&self, id: &str) -> Result<SigningKey> {
+        match self.get_signing_key(id) {
+            Ok(key) => Ok(key),
+            Err(_) => {
+                let new_key = create_signing_key();
+                self.add_signing_key(id, &new_key)?;
+                Ok(new_key)
+            }
+        }
     }
 }
 
-fn load_symmetric_key() -> Result<Aes256Gcm, Box<dyn std::error::Error>> {
+fn load_symmetric_key() -> Result<Aes256Gcm> {
     dotenv().ok();
-    let key = env::var("SYMMETRIC_KEY").unwrap_or_else(|_| {
-        let symmetric_key = Aes256Gcm::generate_key(OsRng);
-        let key_hex = symmetric_key.encode_hex();
-
-        let mut env_content = fs::read_to_string(".env").unwrap_or_default();
-        env_content.push_str(&format!("\nSYMMETRIC_KEY={}\n", key_hex));
-        fs::write(".env", env_content).unwrap();
-
-        key_hex
-    });
-
-    let cipher = Aes256Gcm::new(Key::<Aes256Gcm>::from_slice(&hex::decode(key)?));
-
+    let key = env::var("SYMMETRIC_KEY").context("Failed to load symmetric key")?;
+    let cipher = Aes256Gcm::new_from_slice(&hex::decode(key)?)
+        .map_err(|e| anyhow!("Failed to create symmetric key: {}", e))?;
     Ok(cipher)
 }
 
-pub fn encrypt_and_store_private_key(
-    signing_key: &SigningKey,
-    file_path: &str,
-) -> Result<(), Box<dyn std::error::Error>> {
+pub fn encrypt_and_store_private_key(signing_key: &SigningKey, file_path: &PathBuf) -> Result<()> {
     let symmetric_key = load_symmetric_key()?;
     let nonce = Aes256Gcm::generate_nonce(&mut OsRng);
 
     let ciphertext = symmetric_key
         .encrypt(&nonce, signing_key.to_bytes().as_ref())
-        .unwrap();
+        .map_err(|e| anyhow::anyhow!("Failed to encrypt private key: {}", e))?;
 
     let mut data_to_store = Vec::new();
     data_to_store.extend_from_slice(&nonce);
@@ -71,9 +71,7 @@ pub fn encrypt_and_store_private_key(
     Ok(())
 }
 
-pub fn load_and_decrypt_private_key(
-    file_path: &str,
-) -> Result<SigningKey, Box<dyn std::error::Error>> {
+pub fn load_and_decrypt_private_key(file_path: &PathBuf) -> Result<SigningKey> {
     let encrypted_data = std::fs::read(file_path)?;
     let symmetric_key = load_symmetric_key()?;
 
@@ -82,7 +80,11 @@ pub fn load_and_decrypt_private_key(
 
     let decrypted_plaintext = symmetric_key
         .decrypt(nonce, ciphertext)
-        .map_err(|e| e.to_string())?;
+        .map_err(|e| anyhow!("Failed to decrypt private key: {}", e))?;
+
+    if decrypted_plaintext.len() != 32 {
+        bail!("Decrypted data has incorrect length for ed25519 key");
+    }
 
     let mut singing_key_array = [0u8; 32];
     singing_key_array.copy_from_slice(&decrypted_plaintext);
@@ -96,42 +98,33 @@ mod tests {
 
     #[test]
     fn test_encrypt_and_decrypt_private_key() {
-        // generate a signing key
         let signing_key = create_signing_key();
+        let file_path = PathBuf::from("test_encrypted_key1");
 
-        let file_path = "test_encrypted_key";
+        encrypt_and_store_private_key(&signing_key, &file_path)
+            .expect("Failed to encrypt and store key");
 
-        // encrypt and store the private key
-        encrypt_and_store_private_key(&signing_key, file_path)
-            .expect("Fehler beim Verschlüsseln und Speichern");
-
-        // load and decrypt the private key
         let decrypted_key =
-            load_and_decrypt_private_key(file_path).expect("Fehler beim Laden und Entschlüsseln");
+            load_and_decrypt_private_key(&file_path).expect("Failed to load and decrypt key");
 
-        // check if the keys are the same
         assert_eq!(
             signing_key.to_bytes(),
             decrypted_key.to_bytes(),
-            "Die Schlüssel stimmen nicht überein"
+            "Decrypted key is not the same as the original key"
         );
 
-        // remove the test file
-        std::fs::remove_file(file_path).expect("Fehler beim Löschen der Testdatei");
+        std::fs::remove_file(file_path).expect("Failed to remove test file");
     }
 
     #[test]
     fn test_encrypt_and_decrypt_private_key_with_wrong_nonce() {
-        // generate a signing key
         let signing_key = create_signing_key();
+        let file_path = PathBuf::from("test_encrypted_key2");
 
-        let file_path = "test_encrypted_key";
+        encrypt_and_store_private_key(&signing_key, &file_path)
+            .expect("Failed to encrypt and store key");
 
-        // encrypt and store the private key
-        encrypt_and_store_private_key(&signing_key, file_path)
-            .expect("Fehler beim Verschlüsseln und Speichern");
-
-        let encrypted_data = std::fs::read(file_path).unwrap();
+        let encrypted_data = std::fs::read(&file_path).unwrap();
         let symmetric_key = load_symmetric_key().unwrap();
 
         let (_nonce, ciphertext) = encrypted_data.split_at(12);
@@ -143,7 +136,6 @@ mod tests {
 
         assert!(decryption_result.is_err(), "cant decrypt with wrong nonce");
 
-        // remove the test file
-        std::fs::remove_file(file_path).expect("Fehler beim Löschen der Testdatei");
+        std::fs::remove_file(file_path).expect("Failed to remove test file");
     }
 }
