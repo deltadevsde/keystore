@@ -55,7 +55,7 @@ pub fn add_signing_key_to_keychain(
 #[cfg(target_os = "linux")]
 pub fn add_signing_key_to_keychain(id: &str, signing_key: &SigningKey) -> Result<()> {
     let signing_key_bytes = signing_key.to_bytes();
-    let signing_key_str = general_purpose::STANDARD.encode(&signing_key_bytes);
+    let signing_key_str = general_purpose::STANDARD.encode(signing_key_bytes);
 
     let entry = Entry::new(id, "signing_key").context("failed to create new keyring entry")?;
     entry.set_password(&signing_key_str)?;
@@ -84,7 +84,7 @@ pub fn get_signing_key_from_keychain(id: &str) -> Result<SigningKey> {
         .get_password()
         .context("failed to get password from keyring")?;
 
-    let signing_key_bytes = general_purpose::STANDARD.decode(&signing_key_str)?;
+    let signing_key_bytes = general_purpose::STANDARD.decode(signing_key_str)?;
     let mut signing_key_array = [0u8; 32];
     signing_key_array.copy_from_slice(&signing_key_bytes[..32]);
     Ok(SigningKey::from(signing_key_array))
