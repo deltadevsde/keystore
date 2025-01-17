@@ -7,31 +7,127 @@ use anyhow::{anyhow, bail, Context, Result};
 use dotenvy::dotenv;
 use ed25519_consensus::SigningKey;
 use hex;
-use std::{borrow::Cow, env};
-use std::{fs, path::PathBuf};
+use serde::{Deserialize, Serialize};
+use serde_json;
+use std::collections::HashMap;
+use std::{env, fs, path::PathBuf};
+
+#[derive(Serialize, Deserialize, Default)]
+struct EncryptedKeyStoreFile {
+    keys: HashMap<String, EncryptedKey>,
+}
+
+#[derive(Serialize, Deserialize)]
+struct EncryptedKey {
+    nonce: Vec<u8>,
+    ciphertext: Vec<u8>,
+}
 
 pub struct FileStore {
-    file_path: Cow<'static, str>,
+    file_path: PathBuf,
+    cipher: Aes256Gcm,
 }
 
 impl FileStore {
-    // using impl Into<String> to allow for &str and String here
-    pub fn new(file_path: Cow<'static, str>) -> Self {
-        FileStore { file_path }
+    pub fn new<P: Into<PathBuf>>(file_path: P) -> Result<Self> {
+        let file_path = file_path.into();
+        let expanded_path = if file_path.to_string_lossy().starts_with("~/") {
+            if let Some(home) = dirs::home_dir() {
+                home.join(file_path.to_string_lossy()[2..].to_string())
+            } else {
+                return Err(anyhow!("Could not determine home directory"));
+            }
+        } else {
+            file_path
+        };
+
+        let cipher = load_symmetric_key()?;
+        Ok(FileStore {
+            file_path: expanded_path,
+            cipher,
+        })
+    }
+
+    fn read_store(&self) -> Result<EncryptedKeyStoreFile> {
+        if !self.file_path.exists() {
+            if let Some(parent) = self.file_path.parent() {
+                fs::create_dir_all(parent).context("Failed to create keystore directory")?;
+            }
+            return Ok(EncryptedKeyStoreFile::default());
+        }
+
+        let content = fs::read_to_string(&self.file_path).context(format!(
+            "Failed to read keystore file at {:?}",
+            self.file_path
+        ))?;
+
+        serde_json::from_str(&content).context(format!(
+            "Failed to parse keystore file at {:?}. Content: {}",
+            self.file_path, content
+        ))
+    }
+
+    fn write_store(&self, store: &EncryptedKeyStoreFile) -> Result<()> {
+        // we have to ensure the directory exists
+        if let Some(parent) = self.file_path.parent() {
+            fs::create_dir_all(parent).context("Failed to create keystore directory")?;
+        }
+
+        let content =
+            serde_json::to_string_pretty(store).context("Failed to serialize keystore")?;
+
+        fs::write(&self.file_path, content).context("Failed to write keystore file")
+    }
+
+    fn encrypt_key(&self, key: &SigningKey) -> Result<EncryptedKey> {
+        let nonce = Aes256Gcm::generate_nonce(&mut OsRng);
+
+        let ciphertext = self
+            .cipher
+            .encrypt(&nonce, key.to_bytes().as_ref())
+            .map_err(|e| anyhow!("Failed to encrypt key: {}", e))?;
+
+        Ok(EncryptedKey {
+            nonce: nonce.to_vec(),
+            ciphertext,
+        })
+    }
+
+    fn decrypt_key(&self, encrypted: &EncryptedKey) -> Result<SigningKey> {
+        let nonce = Nonce::from_slice(&encrypted.nonce);
+
+        let plaintext = self
+            .cipher
+            .decrypt(nonce, encrypted.ciphertext.as_ref())
+            .map_err(|e| anyhow!("Failed to decrypt key: {}", e))?;
+
+        if plaintext.len() != 32 {
+            bail!("Decrypted data has incorrect length for ed25519 key");
+        }
+
+        let mut key_array = [0u8; 32];
+        key_array.copy_from_slice(&plaintext);
+        Ok(SigningKey::from(key_array))
     }
 }
 
 impl KeyStore for FileStore {
     fn add_signing_key(&self, id: &str, signing_key: &SigningKey) -> Result<()> {
-        let path = PathBuf::from(self.file_path.as_ref()).join(id);
-        encrypt_and_store_private_key(signing_key, &path)
-            .context(format!("failed to store signing key for id {}", id))
+        let mut store = self.read_store()?;
+        let encrypted = self.encrypt_key(signing_key)?;
+        store.keys.insert(id.to_string(), encrypted);
+        self.write_store(&store)
     }
 
     fn get_signing_key(&self, id: &str) -> Result<SigningKey> {
-        let path = PathBuf::from(self.file_path.as_ref()).join(id);
-        load_and_decrypt_private_key(&path)
-            .context(format!("failed to load signing key for id {}", id))
+        let store = self.read_store()?;
+
+        let encrypted = store
+            .keys
+            .get(id)
+            .ok_or_else(|| anyhow!("No key found for id: {}", id))?;
+
+        self.decrypt_key(encrypted)
     }
 
     fn get_or_create_signing_key(&self, id: &str) -> Result<SigningKey> {
@@ -54,88 +150,56 @@ fn load_symmetric_key() -> Result<Aes256Gcm> {
     Ok(cipher)
 }
 
-pub fn encrypt_and_store_private_key(signing_key: &SigningKey, file_path: &PathBuf) -> Result<()> {
-    let symmetric_key = load_symmetric_key()?;
-    let nonce = Aes256Gcm::generate_nonce(&mut OsRng);
-
-    let ciphertext = symmetric_key
-        .encrypt(&nonce, signing_key.to_bytes().as_ref())
-        .map_err(|e| anyhow::anyhow!("Failed to encrypt private key: {}", e))?;
-
-    let mut data_to_store = Vec::new();
-    data_to_store.extend_from_slice(&nonce);
-    data_to_store.extend_from_slice(&ciphertext);
-
-    fs::write(file_path, &data_to_store)?;
-
-    Ok(())
-}
-
-pub fn load_and_decrypt_private_key(file_path: &PathBuf) -> Result<SigningKey> {
-    let encrypted_data = std::fs::read(file_path)?;
-    let symmetric_key = load_symmetric_key()?;
-
-    let (nonce, ciphertext) = encrypted_data.split_at(12);
-    let nonce = Nonce::from_slice(nonce);
-
-    let decrypted_plaintext = symmetric_key
-        .decrypt(nonce, ciphertext)
-        .map_err(|e| anyhow!("Failed to decrypt private key: {}", e))?;
-
-    if decrypted_plaintext.len() != 32 {
-        bail!("Decrypted data has incorrect length for ed25519 key");
-    }
-
-    let mut singing_key_array = [0u8; 32];
-    singing_key_array.copy_from_slice(&decrypted_plaintext);
-    Ok(SigningKey::from(singing_key_array))
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::create_signing_key;
+    use tempfile::tempdir;
 
-    #[test]
-    fn test_encrypt_and_decrypt_private_key() {
-        let signing_key = create_signing_key();
-        let file_path = PathBuf::from("test_encrypted_key1");
-
-        encrypt_and_store_private_key(&signing_key, &file_path)
-            .expect("Failed to encrypt and store key");
-
-        let decrypted_key =
-            load_and_decrypt_private_key(&file_path).expect("Failed to load and decrypt key");
-
-        assert_eq!(
-            signing_key.to_bytes(),
-            decrypted_key.to_bytes(),
-            "Decrypted key is not the same as the original key"
+    fn setup_test_env() {
+        std::env::set_var(
+            "SYMMETRIC_KEY",
+            "44a28a80b65029c1f4d4dd9e867cd91bb4c5ea07f232f395d64fb327f1c45c1c",
         );
-
-        std::fs::remove_file(file_path).expect("Failed to remove test file");
     }
 
     #[test]
-    fn test_encrypt_and_decrypt_private_key_with_wrong_nonce() {
-        let signing_key = create_signing_key();
-        let file_path = PathBuf::from("test_encrypted_key2");
+    fn test_store_and_retrieve_key() {
+        setup_test_env();
+        let temp_dir = tempdir().unwrap();
+        let file_path = temp_dir.path().join("test_keystore.json");
+        let store = FileStore::new(file_path).unwrap();
 
-        encrypt_and_store_private_key(&signing_key, &file_path)
-            .expect("Failed to encrypt and store key");
+        let id = "test_key";
+        let original_key = create_signing_key();
+        store.add_signing_key(id, &original_key).unwrap();
 
-        let encrypted_data = std::fs::read(&file_path).unwrap();
-        let symmetric_key = load_symmetric_key().unwrap();
+        let retrieved_key = store.get_signing_key(id).unwrap();
+        assert_eq!(original_key.to_bytes(), retrieved_key.to_bytes());
+    }
 
-        let (_nonce, ciphertext) = encrypted_data.split_at(12);
-        let new_nonce = Aes256Gcm::generate_nonce(&mut OsRng);
+    #[test]
+    fn test_get_nonexistent_key() {
+        setup_test_env();
+        let temp_dir = tempdir().unwrap();
+        let file_path = temp_dir.path().join("test_keystore.json");
+        let store = FileStore::new(file_path).unwrap();
 
-        let decryption_result = symmetric_key
-            .decrypt(&new_nonce, ciphertext)
-            .map_err(|e| e.to_string());
+        let result = store.get_signing_key("nonexistent");
+        assert!(result.is_err());
+    }
 
-        assert!(decryption_result.is_err(), "cant decrypt with wrong nonce");
+    #[test]
+    fn test_get_or_create_key() {
+        setup_test_env();
+        let temp_dir = tempdir().unwrap();
+        let file_path = temp_dir.path().join("test_keystore.json");
+        let store = FileStore::new(file_path).unwrap();
 
-        std::fs::remove_file(file_path).expect("Failed to remove test file");
+        let id = "test_key";
+
+        let key1 = store.get_or_create_signing_key(id).unwrap();
+        let key2 = store.get_or_create_signing_key(id).unwrap();
+
+        assert_eq!(key1.to_bytes(), key2.to_bytes());
     }
 }
