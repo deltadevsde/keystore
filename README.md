@@ -4,7 +4,7 @@ Keystore-rs is a Rust library for securely storing and managing cryptographic ke
 
 ## Features
 
-- Secure key generation
+- Secure ED25519 key generation
 - Key storage and retrieval
 - Supports macOS and Linux keychain integration
 
@@ -25,29 +25,58 @@ cargo add keystore-rs
 
 ## Usage
 
-Here is a basic example of how to use Keystore:
+The library provides two main storage implementations:
+
+- FileStore: Encrypted file-based storage using AES-256-GCM
+- KeyChain: System keychain integration (macOS/Linux)
+
+### File-based Storage
 
 ```rust
-use keystore_rs::{create_signing_key, KeyStore, KeyStoreType, FileStore};
+use keystore_rs::{create_signing_key, KeyStore, FileStore};
+use anyhow::Result;
 
-fn main() {
-    // Create a new signing key
-    let signing_key = create_signing_key();
-
+fn main() -> Result<()> {
+    // Set up symmetric key for file encryption (required for FileStore)
+    std::env::set_var("SYMMETRIC_KEY", "your-32-byte-hex-encoded-key");
+    
     // Create a file-based keystore
-    let file_store = FileStore::new("keyfile");
+    let file_store = FileStore::new("~/.keystore/keys.json")?;
 
-    // Create a keystore enum
-    let keystore = KeyStoreType::FileStore(file_store);
+    // Create and store a new signing key
+    let signing_key = create_signing_key();
+    file_store.add_signing_key("my-key-1", &signing_key)?;
 
-    // Add the signing key to the keystore
-    keystore.add_signing_key("my-key-1", &signing_key)?;
+    // Retrieve the signing key (will return an error if it doesnt exist)
+    let retrieved_key = file_store.get_signing_key("my-key-1")?;
 
-    // Retrieve the signing key from the keystore
-    let retrieved_key = keystore.get_signing_key("my-key-1")?;
-
-    // Get a key, creating it if it doesn't exist
+    // Get or create a key (creates the key if it doesn't exist)
     let key = file_store.get_or_create_signing_key("my-key-2")?;
+    
+    Ok(())
+}
+```
+
+### System Keychain
+
+```rust
+use keystore_rs::{create_signing_key, KeyStore, KeyChain};
+use anyhow::Result;
+
+fn main() -> Result<()> {
+    let keychain = KeyChain;
+    
+    // Create and store a new signing key
+    let signing_key = create_signing_key();
+    keychain.add_signing_key("my-key-1", &signing_key)?;
+
+    // Retrieve the signing key
+    let retrieved_key = keychain.get_signing_key("my-key-1")?;
+
+    // Get or create a key (creates if doesn't exist)
+    let key = keychain.get_or_create_signing_key("my-key-2")?;
+    
+    Ok(())
 }
 ```
 
